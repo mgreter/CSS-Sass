@@ -9,7 +9,7 @@ MYMETA.*
 .build/
 _build/
 cover_db/
-blib/
+/blib/
 .lwpcookies
 .last_cover_stats
 nytprof.out
