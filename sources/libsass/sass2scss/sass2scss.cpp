@@ -185,50 +185,65 @@ namespace Sass
 	{
 
 		size_t col_pos = 0;
+		bool apoed = false;
 		bool quoted = false;
 		bool comment = false;
+		size_t brackets = 0;
 
 		while (col_pos != string::npos)
 		{
 
 			// process all interesting chars
-			col_pos = sass.find_first_of("\"/\\*", col_pos);
+			col_pos = sass.find_first_of("\"\'/\\*\(\)", col_pos);
 
 			// assertion for valid result
 			if (col_pos != string::npos)
 			{
 
-				if (sass.at(col_pos) == '\"')
+				if (sass.at(col_pos) == '\(')
+				{
+					if (!quoted && !apoed) brackets ++;
+				}
+				else if (sass.at(col_pos) == '\)')
+				{
+					if (!quoted && !apoed) brackets --;
+				}
+				else if (sass.at(col_pos) == '\"')
 				{
 					// invert quote bool
-					quoted = !quoted;
+					if (!apoed && !comment) quoted = !quoted;
 				}
-				else if (sass.at(col_pos) == '/')
+				else if (sass.at(col_pos) == '\'')
 				{
-					if (col_pos > 0 && sass.at(col_pos - 1) == '*')
+					// invert quote bool
+					if (!quoted && !comment) apoed = !apoed;
+				}
+				else if (col_pos > 0 && sass.at(col_pos) == '/')
+				{
+					if (sass.at(col_pos - 1) == '*')
 					{
 						comment = false;
 					}
 					// next needs to be a slash too
-					else if (col_pos > 0 && sass.at(col_pos - 1) == '/')
+					else if (sass.at(col_pos - 1) == '/')
 					{
-						// only found if not in quote or comment
-						if (!quoted && !comment) return col_pos - 1;
+						// only found if not in single or double quote, bracket or comment
+						if (!quoted && !apoed && !comment && brackets == 0) return col_pos - 1;
 					}
 				}
 				else if (sass.at(col_pos) == '\\')
 				{
 					// skip next char if in quote
-					if (quoted) col_pos ++;
+					if (quoted || apoed) col_pos ++;
 				}
 				// this might be a comment opener
-				else if (sass.at(col_pos) == '*')
+				else if (col_pos > 0 && sass.at(col_pos) == '*')
 				{
 					// opening a multiline comment
-					if (col_pos > 0 && sass.at(col_pos - 1) == '/')
+					if (sass.at(col_pos - 1) == '/')
 					{
 						// we are now in a comment
-						if (!quoted) comment = true;
+						if (!quoted && !apoed) comment = true;
 					}
 				}
 
@@ -254,6 +269,7 @@ namespace Sass
 		size_t col_pos = 0;
 		size_t open_pos = 0;
 		size_t close_pos = 0;
+		bool apoed = false;
 		bool quoted = false;
 		bool comment = false;
 
@@ -262,7 +278,7 @@ namespace Sass
 		{
 
 			// process all interesting chars
-			col_pos = sass.find_first_of("\"/\\*", col_pos);
+			col_pos = sass.find_first_of("\"\'/\\*", col_pos);
 
 			// assertion for valid result
 			if (col_pos != string::npos)
@@ -271,7 +287,11 @@ namespace Sass
 				// found quoted string delimiter
 				if (sass.at(col_pos) == '\"')
 				{
-					if (!comment) quoted = !quoted;
+					if (!apoed && !comment) quoted = !quoted;
+				}
+				else if (sass.at(col_pos) == '\'')
+				{
+					if (!quoted && !comment) apoed = !apoed;
 				}
 				// found possible comment closer
 				else if (sass.at(col_pos) == '/')
@@ -285,13 +305,13 @@ namespace Sass
 				else if (sass.at(col_pos) == '\\')
 				{
 					// skip escaped char
-					if (quoted) col_pos ++;
+					if (quoted || apoed) col_pos ++;
 				}
 				// this might be a comment opener
 				else if (sass.at(col_pos) == '*')
 				{
 					// look back to see if it is actually an opener
-					if (!quoted && col_pos > 0 && sass.at(col_pos - 1) == '/')
+					if (!quoted && !apoed && col_pos > 0 && sass.at(col_pos - 1) == '/')
 					{
 						comment = true; open_pos = col_pos - 1;
 						clean += sass.substr(close_pos, open_pos - close_pos);
