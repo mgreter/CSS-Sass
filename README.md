@@ -45,7 +45,7 @@ This module requires these other modules and libraries:
 Copyright And Licence
 ---------------------
 
-Copyright © 2013 by David Caldwell
+Copyright © 2013 by David Caldwell  
 Copyright © 2014 by Marcel Greter
 
 This library is free software; you can redistribute it and/or modify
