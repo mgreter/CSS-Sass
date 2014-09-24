@@ -22,10 +22,6 @@ BEGIN
 			next if $ent eq "..";
 			next if $ent eq "todo";
 			my $path = join("/", $dir, $ent);
-			next if $path eq "t/sass-spec/spec/libsass/placeholder-mediaquery/input.scss";
-			next if $path eq "t/sass-spec/spec/libsass/placeholder-nested/input.scss";
-			next if $path eq "t/sass-spec/spec/extend-tests/226_test_nested_selector_with_child_selector_hack_extender_and_extendee/input.scss";
-			next if $path eq "t/sass-spec/spec/basic/48_case_conversion/input.scss";
 			push @dirs, $path if -d $path;
 			push @tests, [$dir, $ent] if $ent =~ m/^input/;
 		}
