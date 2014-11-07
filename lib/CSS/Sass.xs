@@ -33,15 +33,10 @@ union Sass_Value make_sass_error_f(char *format,...)
 {
     va_list ap;
     va_start(ap, format);
-    char msg[100];
-    vsnprintf(msg, sizeof(msg), format, ap);
+    SV* res = vnewSVpvf(format, &ap);
     va_end(ap);
-    union Sass_Value err = make_sass_error(msg ? msg : format);
-    return err;
+    return make_sass_error(SvPV_nolen(res));
 }
-
-// determine the type first with the actual data sctructure
-// check some special types with if (sv_isobject(sv) && sv_derived_from(sv, class)) { ... }
 
 // convert from perl to libsass
 union Sass_Value sv_to_sass_value(SV *sv)
@@ -341,40 +336,90 @@ union Sass_Value call_sass_function(const union Sass_Value s_args, void *cookie)
 
 }
 
-void init_context(struct sass_options* sass_options, HV* perl_options)
+SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
 {
 
-    SV **output_style_sv          = hv_fetchs(perl_options, "output_style",         false);
-    SV **source_comments_sv       = hv_fetchs(perl_options, "source_comments",      false);
-    SV **omit_source_map_sv       = hv_fetchs(perl_options, "omit_source_map",      false);
-    SV **omit_source_map_url_sv   = hv_fetchs(perl_options, "omit_source_map_url",  false);
-    SV **source_map_contents_sv   = hv_fetchs(perl_options, "source_map_contents",  false);
-    SV **source_map_embed_sv      = hv_fetchs(perl_options, "source_map_embed",     false);
-    SV **include_paths_sv         = hv_fetchs(perl_options, "include_paths",        false);
-    SV **precision_sv             = hv_fetchs(perl_options, "precision",            false);
-    SV **image_path_sv            = hv_fetchs(perl_options, "image_path",           false);
-    SV **source_map_file_sv       = hv_fetchs(perl_options, "source_map_file",      false);
+    SV **input_path_sv          = hv_fetchs(perl_options, "input_path",           false);
+    SV **output_path_sv         = hv_fetchs(perl_options, "output_path",          false);
+    SV **output_style_sv        = hv_fetchs(perl_options, "output_style",         false);
+    SV **source_comments_sv     = hv_fetchs(perl_options, "source_comments",      false);
+    SV **omit_source_map_sv     = hv_fetchs(perl_options, "omit_source_map",      false);
+    SV **omit_source_map_url_sv = hv_fetchs(perl_options, "omit_source_map_url",  false);
+    SV **source_map_contents_sv = hv_fetchs(perl_options, "source_map_contents",  false);
+    SV **source_map_embed_sv    = hv_fetchs(perl_options, "source_map_embed",     false);
+    SV **include_paths_sv       = hv_fetchs(perl_options, "include_paths",        false);
+    SV **precision_sv           = hv_fetchs(perl_options, "precision",            false);
+    SV **image_path_sv          = hv_fetchs(perl_options, "image_path",           false);
+    SV **source_map_file_sv     = hv_fetchs(perl_options, "source_map_file",      false);
+    SV **sass_functions_sv      = hv_fetchs(perl_options, "sass_functions",       false);
 
-    if (output_style_sv)
-        sass_options->output_style = SvUV(*output_style_sv);
-    if (source_comments_sv)
-        sass_options->source_comments = SvTRUE(*source_comments_sv);
-    if (omit_source_map_sv)
-        sass_options->omit_source_map_url = SvTRUE(*omit_source_map_sv);
-    if (omit_source_map_url_sv)
-        sass_options->omit_source_map_url = SvTRUE(*omit_source_map_url_sv);
-    if (source_map_contents_sv)
-        sass_options->source_map_contents = SvTRUE(*source_map_contents_sv);
-    if (source_map_embed_sv)
-        sass_options->source_map_embed = SvTRUE(*source_map_embed_sv);
-    if (include_paths_sv)
-        sass_options->include_paths = safe_svpv(*include_paths_sv, "");
-    if (precision_sv)
-        sass_options->precision = SvUV(*precision_sv);
-    if (image_path_sv)
-        sass_options->image_path = safe_svpv(*image_path_sv, "");
-    if (source_map_file_sv)
-        sass_options->source_map_file = safe_svpv(*source_map_file_sv, "");
+    if (input_path_sv)          sass_option_set_input_path          (sass_options, safe_svpv(*input_path_sv, ""));
+    if (output_path_sv)         sass_option_set_output_path         (sass_options, safe_svpv(*output_path_sv, ""));
+    if (output_style_sv)        sass_option_set_output_style        (sass_options, SvUV(*output_style_sv));
+    if (source_comments_sv)     sass_option_set_source_comments     (sass_options, SvTRUE(*source_comments_sv));
+    if (omit_source_map_sv)     sass_option_set_omit_source_map_url (sass_options, SvTRUE(*omit_source_map_sv));
+    if (omit_source_map_url_sv) sass_option_set_omit_source_map_url (sass_options, SvTRUE(*omit_source_map_url_sv));
+    if (source_map_contents_sv) sass_option_set_source_map_contents (sass_options, SvTRUE(*source_map_contents_sv));
+    if (source_map_embed_sv)    sass_option_set_source_map_embed    (sass_options, SvTRUE(*source_map_embed_sv));
+    if (include_paths_sv)       sass_option_set_include_paths       (sass_options, safe_svpv(*include_paths_sv, ""));
+    if (precision_sv)           sass_option_set_precision           (sass_options, SvUV(*precision_sv));
+    if (image_path_sv)          sass_option_set_image_path          (sass_options, safe_svpv(*image_path_sv, ""));
+    if (source_map_file_sv)     sass_option_set_source_map_file     (sass_options, safe_svpv(*source_map_file_sv, ""));
+
+    if (sass_functions_sv) {
+        int i;
+        AV* sass_functions_av;
+        if (!SvROK(*sass_functions_sv) || SvTYPE(SvRV(*sass_functions_sv)) != SVt_PVAV) {
+            return newSVpvf("sass_functions should be an arrayref (SvTYPE=%u)", (unsigned)SvTYPE(SvRV(*sass_functions_sv)));
+        }
+        sass_functions_av = (AV*)SvRV(*sass_functions_sv);
+
+        sass_options->c_functions = calloc(sizeof(struct Sass_C_Function_Descriptor), av_len(sass_functions_av) + 1/*av_len() is $#av*/ + 1/*null terminated array*/);
+        if (!sass_options->c_functions) {
+            return newSVpv("couldn't alloc memory for c_functions", 0);
+        }
+        for (i=0; i<=av_len(sass_functions_av); i++) {
+            SV** entry_sv = av_fetch(sass_functions_av, i, false);
+            AV* entry_av;
+            if (!SvROK(*entry_sv) || SvTYPE(SvRV(*entry_sv)) != SVt_PVAV) {
+                return newSVpvf("each sass_function entry should be an arrayref (SvTYPE=%u)", (unsigned)SvTYPE(SvRV(*entry_sv)));
+            }
+            entry_av = (AV*)SvRV(*entry_sv);
+
+            SV **sig_sv = av_fetch(entry_av, 0, false);
+            SV **sub_sv = av_fetch(entry_av, 1, false);
+
+            sass_options->c_functions[i].signature = safe_svpv(*sig_sv, "");
+            sass_options->c_functions[i].function = call_sass_function;
+            sass_options->c_functions[i].cookie = *sub_sv;
+        }
+    }
+
+    return &PL_sv_undef;
+
+}
+
+void finalize_sass_context(struct sass_context* ctx, HV* RETVAL, SV* err)
+{
+
+    const int error_status = sass_context_get_error_status(ctx);
+    const char* error_message = sass_context_get_error_message(ctx);
+    const char* output_string = sass_context_get_output_string(ctx);
+    const char* source_map_string = sass_context_get_source_map_string(ctx);
+    char** included_files = sass_context_get_included_files(ctx);
+    const int num_included_files = sass_context_get_num_included_files(ctx);
+
+    size_t i;
+    AV* sv_included_files = newAV();
+    for (i = 0; i < num_included_files; i++) {
+        av_push(sv_included_files, newSVpv(included_files[i], 0));
+    }
+
+    hv_stores(RETVAL, "error_status",      newSViv(error_status || SvOK(err)));
+    hv_stores(RETVAL, "output_string",     output_string ? newSVpv(output_string, 0) : newSV(0));
+    hv_stores(RETVAL, "source_map_string", source_map_string ? newSVpv(source_map_string, 0) : newSV(0));
+    hv_stores(RETVAL, "error_message",     SvOK(err) ? err : error_message ? newSVpv(error_message, 0) : newSV(0));
+    hv_stores(RETVAL, "included_files",    newRV_noinc((SV*)sv_included_files));
 
 }
 
@@ -422,63 +467,17 @@ compile_sass(input_string, options)
         RETVAL = newHV();
         sv_2mortal((SV*)RETVAL);
     {
-        struct sass_context *ctx = sass_new_context();
-        char error[100] = "";
-        ctx->source_string = input_string;
 
-        SV **input_path_sv      = hv_fetchs(options, "input_path",      false);
-        if (input_path_sv)
-            ctx->input_path = safe_svpv(*input_path_sv, "");
+        struct sass_data_context* data_ctx = new_sass_data_context();
+        struct sass_context* ctx = sass_data_context_get_context(data_ctx);
+        struct sass_options* ctx_opt = sass_context_get_options(ctx);
+        sass_data_context_set_source_string(data_ctx, input_string);
+        SV* err = init_sass_options(ctx_opt, options);
+        if (!SvTRUE(err)) compile_sass_data_context(data_ctx);
+        finalize_sass_context(ctx, RETVAL, err);
+        free (sass_option_get_c_functions(ctx_opt));
+        free_sass_data_context(data_ctx);
 
-        SV **output_path_sv           = hv_fetchs(options, "output_path",          false);
-        SV **sass_functions_sv        = hv_fetchs(options, "sass_functions",       false);
-
-        init_context(&ctx->options, options);
-
-        if (output_path_sv)
-            ctx->output_path = safe_svpv(*output_path_sv, "");
-        if (sass_functions_sv) {
-            int i;
-            AV* sass_functions_av;
-            if (!SvROK(*sass_functions_sv) || SvTYPE(SvRV(*sass_functions_sv)) != SVt_PVAV) {
-                snprintf(error, sizeof(error), "sass_functions should be an arrayref (SvTYPE=%u)", (unsigned)SvTYPE(SvRV(*sass_functions_sv)));
-                goto fail;
-            }
-            sass_functions_av = (AV*)SvRV(*sass_functions_sv);
-
-            ctx->c_functions = calloc(sizeof(struct Sass_C_Function_Descriptor), av_len(sass_functions_av) + 1/*av_len() is $#av*/ + 1/*null terminated array*/);
-            if (!ctx->c_functions) {
-                snprintf(error, sizeof(error), "couldn't alloc memory for c_functions");
-                goto fail;
-            }
-            for (i=0; i<=av_len(sass_functions_av); i++) {
-                SV** entry_sv = av_fetch(sass_functions_av, i, false);
-                AV* entry_av;
-                if (!SvROK(*entry_sv) || SvTYPE(SvRV(*entry_sv)) != SVt_PVAV) {
-                    snprintf(error, sizeof(error), "each sass_function entry should be an arrayref (SvTYPE=%u)", (unsigned)SvTYPE(SvRV(*entry_sv)));
-                    goto fail;
-                }
-                entry_av = (AV*)SvRV(*entry_sv);
-
-                SV **sig_sv = av_fetch(entry_av, 0, false);
-                SV **sub_sv = av_fetch(entry_av, 1, false);
-
-                ctx->c_functions[i].signature = safe_svpv(*sig_sv, "");
-                ctx->c_functions[i].function = call_sass_function;
-                ctx->c_functions[i].cookie = *sub_sv;
-            }
-        }
-
-        sass_compile(ctx); // Always returns zero. What's the point??
-
-      fail:
-        hv_stores(RETVAL, "error_status", newSViv(ctx->error_status || !!*error));
-        hv_stores(RETVAL, "output_string", ctx->output_string ? newSVpv(ctx->output_string, 0) : newSV(0));
-        hv_stores(RETVAL, "source_map_string", ctx->source_map_string ? newSVpv(ctx->source_map_string, 0) : newSV(0));
-        hv_stores(RETVAL, "error_message", *error             ? newSVpv(error, 0)              :
-                                              ctx->error_message ? newSVpv(ctx->error_message, 0) : newSV(0));
-
-        sass_free_context(ctx);
     }
     OUTPUT:
              RETVAL
@@ -492,60 +491,17 @@ compile_sass_file(input_path, options)
         RETVAL = newHV();
         sv_2mortal((SV*)RETVAL);
     {
-        struct sass_file_context *ctx = sass_new_file_context();
-        char error[100] = "";
-        ctx->input_path = input_path;
 
-        SV **output_path_sv           = hv_fetchs(options, "output_path",          false);
-        SV **sass_functions_sv        = hv_fetchs(options, "sass_functions",       false);
+        struct sass_file_context* file_ctx = new_sass_file_context();
+        struct sass_context* ctx = sass_file_context_get_context(file_ctx);
+        struct sass_options* ctx_opt = sass_context_get_options(ctx);
+        sass_file_context_set_input_path(file_ctx, input_path);
+        SV* err = init_sass_options(ctx_opt, options);
+        if (!SvTRUE(err)) compile_sass_file_context(file_ctx);
+        finalize_sass_context(ctx, RETVAL, err);
+        free (sass_option_get_c_functions(ctx_opt));
+        free_sass_file_context(file_ctx);
 
-        init_context(&ctx->options, options);
-
-        if (output_path_sv)
-            ctx->output_path = safe_svpv(*output_path_sv, "");
-
-        if (sass_functions_sv) {
-            int i;
-            AV* sass_functions_av;
-            if (!SvROK(*sass_functions_sv) || SvTYPE(SvRV(*sass_functions_sv)) != SVt_PVAV) {
-                snprintf(error, sizeof(error), "sass_functions should be an arrayref (SvTYPE=%u)", (unsigned)SvTYPE(SvRV(*sass_functions_sv)));
-                goto fail;
-            }
-            sass_functions_av = (AV*)SvRV(*sass_functions_sv);
-
-            ctx->c_functions = calloc(sizeof(struct Sass_C_Function_Descriptor), av_len(sass_functions_av) + 1/*av_len() is $#av*/ + 1/*null terminated array*/);
-            if (!ctx->c_functions) {
-                snprintf(error, sizeof(error), "couldn't alloc memory for c_functions");
-                goto fail;
-            }
-            for (i=0; i<=av_len(sass_functions_av); i++) {
-                SV** entry_sv = av_fetch(sass_functions_av, i, false);
-                AV* entry_av;
-                if (!SvROK(*entry_sv) || SvTYPE(SvRV(*entry_sv)) != SVt_PVAV) {
-                    snprintf(error, sizeof(error), "each sass_function entry should be an arrayref (SvTYPE=%u)", (unsigned)SvTYPE(SvRV(*entry_sv)));
-                    goto fail;
-                }
-                entry_av = (AV*)SvRV(*entry_sv);
-
-                SV **sig_sv = av_fetch(entry_av, 0, false);
-                SV **sub_sv = av_fetch(entry_av, 1, false);
-
-                ctx->c_functions[i].signature = safe_svpv(*sig_sv, "");
-                ctx->c_functions[i].function = call_sass_function;
-                ctx->c_functions[i].cookie = *sub_sv;
-            }
-        }
-
-        sass_compile_file(ctx); // Always returns zero. What's the point??
-
-      fail:
-        hv_stores(RETVAL, "error_status", newSViv(ctx->error_status || !!*error));
-        hv_stores(RETVAL, "output_string", ctx->output_string ? newSVpv(ctx->output_string, 0) : newSV(0));
-        hv_stores(RETVAL, "source_map_string", ctx->source_map_string ? newSVpv(ctx->source_map_string, 0) : newSV(0));
-        hv_stores(RETVAL, "error_message", *error             ? newSVpv(error, 0)              :
-                                              ctx->error_message ? newSVpv(ctx->error_message, 0) : newSV(0));
-
-        sass_free_file_context(ctx);
     }
     OUTPUT:
              RETVAL
@@ -558,7 +514,7 @@ sass2scss(sass, options = SASS2SCSS_PRETTIFY_1)
     {
 
         char* css = sass2scss(sass, options);
-        RETVAL = newSVpv(css, strlen(css));
+        RETVAL = newSVpv(css, 0);
         free (css);
 
     }
@@ -573,7 +529,7 @@ quote(str)
 
         char* quoted = quote(str, '"');
 
-        RETVAL = newSVpv(quoted, strlen(quoted));
+        RETVAL = newSVpv(quoted, 0);
 
         free (quoted);
 
@@ -589,7 +545,7 @@ unquote(str)
 
         char* unquoted = unquote(str);
 
-        RETVAL = newSVpv(unquoted, strlen(unquoted));
+        RETVAL = newSVpv(unquoted, 0);
 
         free (unquoted);
 
