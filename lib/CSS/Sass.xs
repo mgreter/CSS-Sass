@@ -30,7 +30,7 @@ char *safe_svpv(SV *sv, char *_default)
     return _default;
 }
 
-union Sass_Value make_sass_error_f(char *format,...)
+union Sass_Value* make_sass_error_f(char *format,...)
 {
     va_list ap;
     va_start(ap, format);
@@ -40,7 +40,7 @@ union Sass_Value make_sass_error_f(char *format,...)
 }
 
 // convert from perl to libsass
-union Sass_Value sv_to_sass_value(SV *sv)
+union Sass_Value* sv_to_sass_value(SV *sv)
 {
 
     // remember me
@@ -125,22 +125,22 @@ union Sass_Value sv_to_sass_value(SV *sv)
         enum Sass_Separator sepa = SASS_COMMA;
         // special check for space separated lists
         if (sv_derived_from(org, "CSS::Sass::Type::List::Space")) sepa = SASS_SPACE;
-        union Sass_Value list = make_sass_list(1 + av_len(av), sepa);
+        union Sass_Value* list = make_sass_list(1 + av_len(av), sepa);
         int i;
-        for (i = 0; i < list.list.length; i++)
-            list.list.values[i] = sv_to_sass_value(*av_fetch(av, i, false));
+        for (i = 0; i < list->list.length; i++)
+            list->list.values[i] = sv_to_sass_value(*av_fetch(av, i, false));
         return list;
     }
     // perl hash reference
     else if (SvTYPE(sv) == SVt_PVHV) {
         HV* hv = (HV*) sv;
-        union Sass_Value map = make_sass_map(HvUSEDKEYS(hv));
+        union Sass_Value* map = make_sass_map(HvUSEDKEYS(hv));
         HE *key;
         int i = 0;
         hv_iterinit(hv);
         while (NULL != (key = hv_iternext(hv))) {
-            map.map.pairs[i].key = sv_to_sass_value(HeSVKEY_force(key));
-            map.map.pairs[i].value = sv_to_sass_value(HeVAL(key));
+            map->map.pairs[i].key = sv_to_sass_value(HeSVKEY_force(key));
+            map->map.pairs[i].value = sv_to_sass_value(HeVAL(key));
             i++;
         }
         return map;
@@ -203,59 +203,59 @@ SV* new_sv_sass_error (SV* msg) {
 }
 
 // convert from libsass to perl
-SV *sass_value_to_sv(union Sass_Value val)
+SV *sass_value_to_sv(union Sass_Value* val)
 {
     SV* sv;
-    switch(val.unknown.tag) {
+    switch(val->unknown.tag) {
         case SASS_NULL: {
             sv = new_sv_sass_null();
         }   break;
         case SASS_BOOLEAN: {
             sv = new_sv_sass_boolean(
-                     newSViv(val.boolean.value)
+                     newSViv(val->boolean.value)
                  );
         }   break;
         case SASS_NUMBER: {
             sv = new_sv_sass_number(
-                     newSVnv(val.number.value),
-                     newSVpv(val.number.unit, 0)
+                     newSVnv(val->number.value),
+                     newSVpv(val->number.unit, 0)
                  );
         }   break;
         case SASS_COLOR: {
             sv = new_sv_sass_color(
-                     newSVnv(val.color.r),
-                     newSVnv(val.color.g),
-                     newSVnv(val.color.b),
-                     newSVnv(val.color.a)
+                     newSVnv(val->color.r),
+                     newSVnv(val->color.g),
+                     newSVnv(val->color.b),
+                     newSVnv(val->color.a)
                  );
         }   break;
         case SASS_STRING: {
             sv = new_sv_sass_string(
-                     newSVpv(val.string.value, 0)
+                     newSVpv(val->string.value, 0)
                  );
         }   break;
         case SASS_LIST: {
             int i;
             AV* list = newAV();
             sv = newRV_noinc((SV*) list);
-            if (val.list.separator == SASS_SPACE) {
+            if (val->list.separator == SASS_SPACE) {
                 sv_bless(sv, gv_stashpv("CSS::Sass::Type::List::Space", GV_ADD));
             } else {
                 sv_bless(sv, gv_stashpv("CSS::Sass::Type::List::Comma", GV_ADD));
             }
-            for (i=0; i<val.list.length; i++)
-                av_push(list, sass_value_to_sv(val.list.values[i]));
+            for (i=0; i<val->list.length; i++)
+                av_push(list, sass_value_to_sv(val->list.values[i]));
         }   break;
         case SASS_MAP: {
             int i;
             HV* map = newHV();
             sv = newRV_noinc((SV*) map);
             sv_bless(sv, gv_stashpv("CSS::Sass::Type::Map", GV_ADD));
-            for (i=0; i<val.map.length; i++) {
+            for (i=0; i<val->map.length; i++) {
                 // this should return a scalar sv
-                SV* sv_key = sass_value_to_sv(val.map.pairs[i].key);
+                SV* sv_key = sass_value_to_sv(val->map.pairs[i].key);
                 // call us recursive if needed to get sass values
-                SV* sv_value = sass_value_to_sv(val.map.pairs[i].value);
+                SV* sv_value = sass_value_to_sv(val->map.pairs[i].value);
                 // store the key/value pair on the hash
                 hv_store_ent(map, sv_key, sv_value, 0);
                 // make key sv mortal
@@ -264,7 +264,7 @@ SV *sass_value_to_sv(union Sass_Value val)
         }   break;
         case SASS_ERROR: {
             sv = new_sv_sass_error(
-                newSVpv(val.error.message, 0)
+                newSVpv(val->error.message, 0)
             );
         }   break;
         default:
@@ -278,30 +278,30 @@ SV *sass_value_to_sv(union Sass_Value val)
 }
 
 // we are called by libsass to dispatch to registered functions
-union Sass_Value call_sass_function(const union Sass_Value s_args, void *cookie)
+union Sass_Value* call_sass_function(union Sass_Value* s_args, void *cookie)
 {
 
     dSP;
     // value from perl function
     SV *perl_value = NULL;
     // value to return to libsass
-    union Sass_Value sass_value;
+    union Sass_Value* sass_value;
     int i;
 
     ENTER;
     SAVETMPS;
 
     PUSHMARK(SP);
-    for (i=0; i<s_args.list.length; i++) {
+    for (i=0; i<s_args->list.length; i++) {
         // get the Sass_Value from libsass
-        union Sass_Value arg = s_args.list.values[i];
+        union Sass_Value* arg = s_args->list.values[i];
         // convert and add argument for perl
         XPUSHs(sv_2mortal(sass_value_to_sv(arg)));
     }
     PUTBACK;
 
     // free input values
-    free_sass_value(s_args);
+    // free_sass_value(s_args);
 
     // call the static function by soft name reference
     // force array context since we want to check for errors
@@ -563,7 +563,7 @@ import_sv(sv)
     CODE:
     {
 
-        union Sass_Value value = sv_to_sass_value(sv);
+        union Sass_Value* value = sv_to_sass_value(sv);
 
         RETVAL = sass_value_to_sv(value);
 
