@@ -74,6 +74,8 @@ sub message {
 	            join "", @{${${$_[0]}}};
 }
 
+sub value { &message }
+
 sub stringify {
 	scalar(@{${${$_[0]}}}) ?
 	  join "", @{${${$_[0]}}}

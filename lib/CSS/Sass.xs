@@ -127,8 +127,9 @@ union Sass_Value* sv_to_sass_value(SV *sv)
         if (sv_derived_from(org, "CSS::Sass::Type::List::Space")) sepa = SASS_SPACE;
         union Sass_Value* list = make_sass_list(1 + av_len(av), sepa);
         int i;
-        for (i = 0; i < list->list.length; i++)
-            list->list.values[i] = sv_to_sass_value(*av_fetch(av, i, false));
+        for (i = 0; i < sass_list_get_length(sass_value_get_list(list)); i++) {
+            sass_list_set_value(sass_value_get_list(list), i, sv_to_sass_value(*av_fetch(av, i, false)));
+        }
         return list;
     }
     // perl hash reference
@@ -139,8 +140,8 @@ union Sass_Value* sv_to_sass_value(SV *sv)
         int i = 0;
         hv_iterinit(hv);
         while (NULL != (key = hv_iternext(hv))) {
-            map->map.pairs[i].key = sv_to_sass_value(HeSVKEY_force(key));
-            map->map.pairs[i].value = sv_to_sass_value(HeVAL(key));
+            sass_map_set_key(sass_value_get_map(map), i, sv_to_sass_value(HeSVKEY_force(key)));
+            sass_map_set_value(sass_value_get_map(map), i,  sv_to_sass_value(HeVAL(key)));
             i++;
         }
         return map;
@@ -206,56 +207,58 @@ SV* new_sv_sass_error (SV* msg) {
 SV *sass_value_to_sv(union Sass_Value* val)
 {
     SV* sv;
-    switch(val->unknown.tag) {
+    switch(sass_value_get_tag(val)) {
         case SASS_NULL: {
             sv = new_sv_sass_null();
         }   break;
         case SASS_BOOLEAN: {
             sv = new_sv_sass_boolean(
-                     newSViv(val->boolean.value)
+                     newSViv(sass_boolean_get_value(sass_value_get_boolean(val)))
                  );
         }   break;
         case SASS_NUMBER: {
             sv = new_sv_sass_number(
-                     newSVnv(val->number.value),
-                     newSVpv(val->number.unit, 0)
+                     newSVnv(sass_number_get_value(sass_value_get_number(val))),
+                     newSVpv(sass_number_get_unit(sass_value_get_number(val)), 0)
                  );
         }   break;
         case SASS_COLOR: {
             sv = new_sv_sass_color(
-                     newSVnv(val->color.r),
-                     newSVnv(val->color.g),
-                     newSVnv(val->color.b),
-                     newSVnv(val->color.a)
+                     newSVnv(sass_color_get_r(sass_value_get_color(val))),
+                     newSVnv(sass_color_get_g(sass_value_get_color(val))),
+                     newSVnv(sass_color_get_b(sass_value_get_color(val))),
+                     newSVnv(sass_color_get_a(sass_value_get_color(val)))
                  );
         }   break;
         case SASS_STRING: {
             sv = new_sv_sass_string(
-                     newSVpv(val->string.value, 0)
+                     newSVpv(sass_string_get_value(sass_value_get_string(val)), 0)
                  );
         }   break;
         case SASS_LIST: {
             int i;
             AV* list = newAV();
             sv = newRV_noinc((SV*) list);
-            if (val->list.separator == SASS_SPACE) {
+            if (sass_list_get_separator(sass_value_get_list(val)) == SASS_SPACE) {
                 sv_bless(sv, gv_stashpv("CSS::Sass::Type::List::Space", GV_ADD));
             } else {
                 sv_bless(sv, gv_stashpv("CSS::Sass::Type::List::Comma", GV_ADD));
             }
-            for (i=0; i<val->list.length; i++)
-                av_push(list, sass_value_to_sv(val->list.values[i]));
+            for (i=0; i<sass_list_get_length(sass_value_get_list(val)); i++)
+                av_push(list, sass_value_to_sv(sass_list_get_value(sass_value_get_list(val), i)));
         }   break;
         case SASS_MAP: {
             int i;
             HV* map = newHV();
             sv = newRV_noinc((SV*) map);
             sv_bless(sv, gv_stashpv("CSS::Sass::Type::Map", GV_ADD));
-            for (i=0; i<val->map.length; i++) {
+            for (i=0; i<sass_map_get_length(sass_value_get_map(val)); i++) {
                 // this should return a scalar sv
-                SV* sv_key = sass_value_to_sv(val->map.pairs[i].key);
+                union Sass_Value* key = sass_map_get_key(sass_value_get_map(val), i);
+                SV* sv_key = sass_value_to_sv(key);
                 // call us recursive if needed to get sass values
-                SV* sv_value = sass_value_to_sv(val->map.pairs[i].value);
+                union Sass_Value* value = sass_map_get_value(sass_value_get_map(val), i);
+                SV* sv_value = sass_value_to_sv(value);
                 // store the key/value pair on the hash
                 hv_store_ent(map, sv_key, sv_value, 0);
                 // make key sv mortal
@@ -264,12 +267,12 @@ SV *sass_value_to_sv(union Sass_Value* val)
         }   break;
         case SASS_ERROR: {
             sv = new_sv_sass_error(
-                newSVpv(val->error.message, 0)
+                newSVpv(sass_error_get_message(sass_value_get_error(val)), 0)
             );
         }   break;
         default:
-            sv = new_sv_sass_string(
-                newSVpv("BUG: Sass_Value type is unknown", 0)
+            sv = new_sv_sass_error(
+                newSVpvf("BUG: Sass_Value type is unknown (%d)", sass_value_get_tag(val))
             );
             break;
     }
@@ -285,16 +288,16 @@ union Sass_Value* call_sass_function(union Sass_Value* s_args, void *cookie)
     // value from perl function
     SV *perl_value = NULL;
     // value to return to libsass
-    union Sass_Value* sass_value;
+    union Sass_Value* sass_value = NULL;
     int i;
 
     ENTER;
     SAVETMPS;
 
     PUSHMARK(SP);
-    for (i=0; i<s_args->list.length; i++) {
+    for (i=0; i<sass_list_get_length(sass_value_get_list(s_args)); i++) {
         // get the Sass_Value from libsass
-        union Sass_Value* arg = s_args->list.values[i];
+        union Sass_Value* arg = sass_list_get_value(sass_value_get_list(s_args), i);
         // convert and add argument for perl
         XPUSHs(sv_2mortal(sass_value_to_sv(arg)));
     }
@@ -375,7 +378,7 @@ SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
         }
         sass_functions_av = (AV*)SvRV(*sass_functions_sv);
 
-        struct Sass_C_Function_Descriptor* c_functions = calloc(sizeof(struct Sass_C_Function_Descriptor), av_len(sass_functions_av) + 1/*av_len() is $#av*/ + 1/*null terminated array*/);
+        struct Sass_C_Function_Descriptor** c_functions = make_sass_function_list(av_len(sass_functions_av) + 1);
 
         if (!c_functions) {
             return newSVpv("couldn't alloc memory for c_functions", 0);
@@ -390,10 +393,7 @@ SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
 
             SV **sig_sv = av_fetch(entry_av, 0, false);
             SV **sub_sv = av_fetch(entry_av, 1, false);
-
-            c_functions[i].signature = safe_svpv(*sig_sv, "");
-            c_functions[i].function = call_sass_function;
-            c_functions[i].cookie = *sub_sv;
+            c_functions[i] = make_sass_function(safe_svpv(*sig_sv, ""), call_sass_function, *sub_sv);
         }
 
         sass_option_set_c_functions(sass_options, c_functions);
@@ -479,7 +479,7 @@ compile_sass(input_string, options)
         SV* err = init_sass_options(ctx_opt, options);
         if (!SvTRUE(err)) compile_sass_data_context(data_ctx);
         finalize_sass_context(ctx, RETVAL, err);
-        free (sass_option_get_c_functions(ctx_opt));
+        // free (sass_option_get_c_functions(ctx_opt));
         free_sass_data_context(data_ctx);
 
     }
@@ -503,7 +503,7 @@ compile_sass_file(input_path, options)
         SV* err = init_sass_options(ctx_opt, options);
         if (!SvTRUE(err)) compile_sass_file_context(file_ctx);
         finalize_sass_context(ctx, RETVAL, err);
-        free (sass_option_get_c_functions(ctx_opt));
+        // free (sass_option_get_c_functions(ctx_opt));
         free_sass_file_context(file_ctx);
 
     }
