@@ -14,7 +14,8 @@
 
 #include "ppport.h"
 
-#include "sass_interface.h"
+#include "sass.h"
+#include "sass2scss.h"
 
 #define Constant(c) newCONSTSUB(stash, #c, newSViv(c))
 
@@ -374,8 +375,9 @@ SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
         }
         sass_functions_av = (AV*)SvRV(*sass_functions_sv);
 
-        sass_options->c_functions = calloc(sizeof(struct Sass_C_Function_Descriptor), av_len(sass_functions_av) + 1/*av_len() is $#av*/ + 1/*null terminated array*/);
-        if (!sass_options->c_functions) {
+        struct Sass_C_Function_Descriptor* c_functions = calloc(sizeof(struct Sass_C_Function_Descriptor), av_len(sass_functions_av) + 1/*av_len() is $#av*/ + 1/*null terminated array*/);
+
+        if (!c_functions) {
             return newSVpv("couldn't alloc memory for c_functions", 0);
         }
         for (i=0; i<=av_len(sass_functions_av); i++) {
@@ -389,10 +391,12 @@ SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
             SV **sig_sv = av_fetch(entry_av, 0, false);
             SV **sub_sv = av_fetch(entry_av, 1, false);
 
-            sass_options->c_functions[i].signature = safe_svpv(*sig_sv, "");
-            sass_options->c_functions[i].function = call_sass_function;
-            sass_options->c_functions[i].cookie = *sub_sv;
+            c_functions[i].signature = safe_svpv(*sig_sv, "");
+            c_functions[i].function = call_sass_function;
+            c_functions[i].cookie = *sub_sv;
         }
+
+        sass_option_set_c_functions(sass_options, c_functions);
     }
 
     return &PL_sv_undef;
