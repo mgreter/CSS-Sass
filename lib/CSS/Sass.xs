@@ -411,12 +411,13 @@ void finalize_sass_context(struct sass_context* ctx, HV* RETVAL, SV* err)
     const char* output_string = sass_context_get_output_string(ctx);
     const char* source_map_string = sass_context_get_source_map_string(ctx);
     char** included_files = sass_context_get_included_files(ctx);
-    const int num_included_files = sass_context_get_num_included_files(ctx);
 
     size_t i;
     AV* sv_included_files = newAV();
-    for (i = 0; i < num_included_files; i++) {
-        av_push(sv_included_files, newSVpv(included_files[i], 0));
+    char **it = included_files;
+    while (it && (*it) != 0) {
+      av_push(sv_included_files, newSVpv(*it, 0));
+      ++it;
     }
 
     hv_stores(RETVAL, "error_status",      newSViv(error_status || SvOK(err)));
@@ -531,7 +532,7 @@ quote(str)
     CODE:
     {
 
-        char* quoted = quote(str, '"');
+        char* quoted = sass_string_quote(str, '"');
 
         RETVAL = newSVpv(quoted, 0);
 
@@ -547,7 +548,7 @@ unquote(str)
     CODE:
     {
 
-        char* unquoted = unquote(str);
+        char* unquoted = sass_string_unquote(str);
 
         RETVAL = newSVpv(unquoted, 0);
 
