@@ -30,13 +30,13 @@ char *safe_svpv(SV *sv, char *_default)
     return _default;
 }
 
-union Sass_Value* make_sass_error_f(char *format,...)
+union Sass_Value* sass_make_error_f(char *format,...)
 {
     va_list ap;
     va_start(ap, format);
     SV* res = vnewSVpvf(format, &ap);
     va_end(ap);
-    return make_sass_error(SvPV_nolen(res));
+    return sass_make_error(SvPV_nolen(res));
 }
 
 // convert from perl to libsass
@@ -53,23 +53,23 @@ union Sass_Value* sv_to_sass_value(SV *sv)
     if (SvTYPE(sv) < SVt_PVAV) {
 
         // if scalar is undef we return a null type
-        if (!SvOK(sv)) return make_sass_null();
+        if (!SvOK(sv)) return sass_make_null();
 
         // perl double
         else if (SvNOK(sv)) { // i.e. 4.2
             // perl doesn't know numbers with units
-            return make_sass_number(SvNV(sv), "");
+            return sass_make_number(SvNV(sv), "");
         }
         // perl integer
         else if (SvIOK(sv)) { // i.e. 42
             // perl doesn't know numbers with units
-            return make_sass_number(SvIV(sv), "");
+            return sass_make_number(SvIV(sv), "");
         }
         // perl string
         else if (SvPOK(sv)) { // i.e. "foobar"
             // coerce all other scalars into a string
             // IMO there should only be strings left!?
-            return make_sass_string(SvPV_nolen(sv));
+            return sass_make_string(SvPV_nolen(sv));
         }
 
         // perl reference
@@ -81,16 +81,16 @@ union Sass_Value* sv_to_sass_value(SV *sv)
             // check out scalar value
             if (SvTYPE(sv) < SVt_PVAV) {
                 // if scalar is undef we return a null type
-                if (!SvOK(sv)) return make_sass_null();
+                if (!SvOK(sv)) return sass_make_null();
                 // perl reference
                 if (SvROK(sv)) {
                     if (SvTYPE(SvRV(sv)) == SVt_PVAV) {
-                        return make_sass_error(SvPV_nolen(*av_fetch((AV*)SvRV(sv), 0, false)));
+                        return sass_make_error(SvPV_nolen(*av_fetch((AV*)SvRV(sv), 0, false)));
                     }
                 // if we have a scalar
                 } else if (!SvROK(sv)) {
                     // then it is a boolean type
-                    return make_sass_boolean(SvTRUE(sv));
+                    return sass_make_boolean(SvTRUE(sv));
                 }
             }
             // an array means we have a number
@@ -102,7 +102,7 @@ union Sass_Value* sv_to_sass_value(SV *sv)
                   if (SvIOK(num) || SvNOK(num)) {
                     double val = SvNV(num);
                     char* unit = len > 0 ? SvPV_nolen(*av_fetch(number, 1, false)) : "";
-                    return make_sass_number(val, unit);
+                    return sass_make_number(val, unit);
                   }
                 }
             }
@@ -113,7 +113,7 @@ union Sass_Value* sv_to_sass_value(SV *sv)
                 double g = SvNV(*hv_fetchs(color, "g", false));
                 double b = SvNV(*hv_fetchs(color, "b", false));
                 double a = SvNV(*hv_fetchs(color, "a", false));
-                return make_sass_color(r, g, b, a);
+                return sass_make_color(r, g, b, a);
             }
 
         }
@@ -125,7 +125,7 @@ union Sass_Value* sv_to_sass_value(SV *sv)
         enum Sass_Separator sepa = SASS_COMMA;
         // special check for space separated lists
         if (sv_derived_from(org, "CSS::Sass::Type::List::Space")) sepa = SASS_SPACE;
-        union Sass_Value* list = make_sass_list(1 + av_len(av), sepa);
+        union Sass_Value* list = sass_make_list(1 + av_len(av), sepa);
         int i;
         for (i = 0; i < sass_list_get_length(sass_value_get_list(list)); i++) {
             sass_list_set_value(sass_value_get_list(list), i, sv_to_sass_value(*av_fetch(av, i, false)));
@@ -135,7 +135,7 @@ union Sass_Value* sv_to_sass_value(SV *sv)
     // perl hash reference
     else if (SvTYPE(sv) == SVt_PVHV) {
         HV* hv = (HV*) sv;
-        union Sass_Value* map = make_sass_map(HvUSEDKEYS(hv));
+        union Sass_Value* map = sass_make_map(HvUSEDKEYS(hv));
         HE *key;
         int i = 0;
         hv_iterinit(hv);
@@ -148,12 +148,12 @@ union Sass_Value* sv_to_sass_value(SV *sv)
     }
 
     // if scalar is undef we return a null type
-    if (!SvOK(sv)) return make_sass_null();
+    if (!SvOK(sv)) return sass_make_null();
 
     // stringify anything else
     // can be usefull for soft-refs
-    return make_sass_string(SvPV_nolen(sv));
-    // return make_sass_error_f("could not convert value");
+    return sass_make_string(SvPV_nolen(sv));
+    // return sass_make_error_f("could not convert value");
 
 }
 
@@ -304,7 +304,7 @@ union Sass_Value* call_sass_function(union Sass_Value* s_args, void *cookie)
     PUTBACK;
 
     // free input values
-    // free_sass_value(s_args);
+    // sass_free_value(s_args);
 
     // call the static function by soft name reference
     // force array context since we want to check for errors
@@ -322,10 +322,10 @@ union Sass_Value* call_sass_function(union Sass_Value* s_args, void *cookie)
 
     if (SvTRUE(ERRSV)) {
         // perl function died or had some other major problem
-        sass_value = make_sass_error_f("%s:%d %s: Perl sub died with message: %s!\n", __FILE__, __LINE__, __func__, SvPV_nolen(ERRSV));
+        sass_value = sass_make_error_f("%s:%d %s: Perl sub died with message: %s!\n", __FILE__, __LINE__, __func__, SvPV_nolen(ERRSV));
     } else if (count > 1) {
         // perl function returned a list of values (undefined behaviour)
-        sass_value = make_sass_error_f("%s:%d %s: Perl sub must not return a list of values!\n", __FILE__, __LINE__, __func__);
+        sass_value = sass_make_error_f("%s:%d %s: Perl sub must not return a list of values!\n", __FILE__, __LINE__, __func__);
     } else {
         // convert returned sv to Sass_Value
         sass_value = sv_to_sass_value(perl_value);
@@ -378,7 +378,7 @@ SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
         }
         sass_functions_av = (AV*)SvRV(*sass_functions_sv);
 
-        struct Sass_C_Function_Descriptor** c_functions = make_sass_function_list(av_len(sass_functions_av) + 1);
+        struct Sass_C_Function_Descriptor** c_functions = sass_make_function_list(av_len(sass_functions_av) + 1);
 
         if (!c_functions) {
             return newSVpv("couldn't alloc memory for c_functions", 0);
@@ -393,7 +393,7 @@ SV* init_sass_options(struct sass_options* sass_options, HV* perl_options)
 
             SV **sig_sv = av_fetch(entry_av, 0, false);
             SV **sub_sv = av_fetch(entry_av, 1, false);
-            c_functions[i] = make_sass_function(safe_svpv(*sig_sv, ""), call_sass_function, *sub_sv);
+            c_functions[i] = sass_make_function(safe_svpv(*sig_sv, ""), call_sass_function, *sub_sv);
         }
 
         sass_option_set_c_functions(sass_options, c_functions);
@@ -478,10 +478,10 @@ compile_sass(input_string, options)
         struct sass_options* ctx_opt = sass_context_get_options(ctx);
         sass_data_context_set_source_string(data_ctx, input_string);
         SV* err = init_sass_options(ctx_opt, options);
-        if (!SvTRUE(err)) compile_sass_data_context(data_ctx);
+        if (!SvTRUE(err)) sass_compile_data_context(data_ctx);
         finalize_sass_context(ctx, RETVAL, err);
         // free (sass_option_get_c_functions(ctx_opt));
-        free_sass_data_context(data_ctx);
+        sass_free_data_context(data_ctx);
 
     }
     OUTPUT:
@@ -502,10 +502,10 @@ compile_sass_file(input_path, options)
         struct sass_options* ctx_opt = sass_context_get_options(ctx);
         sass_file_context_set_input_path(file_ctx, input_path);
         SV* err = init_sass_options(ctx_opt, options);
-        if (!SvTRUE(err)) compile_sass_file_context(file_ctx);
+        if (!SvTRUE(err)) sass_compile_file_context(file_ctx);
         finalize_sass_context(ctx, RETVAL, err);
         // free (sass_option_get_c_functions(ctx_opt));
-        free_sass_file_context(file_ctx);
+        sass_free_file_context(file_ctx);
 
     }
     OUTPUT:
@@ -568,7 +568,7 @@ import_sv(sv)
 
         RETVAL = sass_value_to_sv(value);
 
-        free_sass_value(value);
+        sass_free_value(value);
 
     }
     OUTPUT:
