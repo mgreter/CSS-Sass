@@ -169,7 +169,7 @@ my %config = (
       },
     },
     add_to_cleanup     => [ 'CSS-Sass-*' ],
-    extra_compiler_flags => ($cover ? ' -O0 -fprofile-arcs -ftest-coverage' : ''),
+    extra_compiler_flags => ($cover ? ' -O0 -fprofile-arcs -ftest-coverage' : '') . ' -Wall',
     $Config{cc} eq 'clang' ? (
         # clang has a bunch of asinine warnings on by default:
         extra_compiler_flags => '-Wno-parentheses -Wno-tautological-compare -Wno-unused-value' .
@@ -178,11 +178,11 @@ my %config = (
     extra_cpp_compiler_flags => [ '-std=c++0x' ],
     extra_linker_flags => ($cover ? '-lgcov -fprofile-arcs -ftest-coverage' : ''),
     c_source => { 'libsass' => [ sort qw(
-        sass2scss.cpp node.cpp sass_util.cpp remove_placeholders.cpp
-        ast.cpp base64vlq.cpp bind.cpp constants.cpp context.cpp contextualize.cpp
-        copy_c_str.cpp error_handling.cpp eval.cpp expand.cpp cencode.c json.cpp
-        extend.cpp file.cpp functions.cpp inspect.cpp output_compressed.cpp
-        output_nested.cpp parser.cpp prelexer.cpp sass.cpp sass_interface.cpp
+        ast.cpp sass2scss.cpp node.cpp sass_util.cpp remove_placeholders.cpp json.cpp
+        base64vlq.cpp bind.cpp constants.cpp context.cpp contextualize.cpp copy_c_str.cpp
+        error_handling.cpp eval.cpp expand.cpp cencode.c functions.cpp inspect.cpp 
+        extend.cpp file.cpp output_compressed.cpp output_nested.cpp parser.cpp prelexer.cpp
+        sass.cpp sass_interface.cpp sass_functions.cpp sass_values.cpp sass_context.cpp
         source_map.cpp to_c.cpp to_string.cpp units.cpp utf8_string.cpp util.cpp
     ) ]
     },
