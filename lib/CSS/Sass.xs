@@ -21,16 +21,18 @@
 
 #undef free
 
-char *safe_svpv(SV *sv, char *_default)
+char* safe_svpv(SV* sv, char* _default)
 {
+
     size_t length;
-    char *str = SvPV(sv, length);
-    if (memchr(str, 0, length+1)) // NULL Terminated?
+    char* str = SvPV(sv, length);
+    // NULL Terminated "array"
+    if (memchr(str, 0, length + 1))
         return str;
     return _default;
 }
 
-union Sass_Value* sass_make_error_f(char *format,...)
+union Sass_Value* sass_make_error_f(char* format,...)
 {
     va_list ap;
     va_start(ap, format);
@@ -40,11 +42,11 @@ union Sass_Value* sass_make_error_f(char *format,...)
 }
 
 // convert from perl to libsass
-union Sass_Value* sv_to_sass_value(SV *sv)
+union Sass_Value* sv_to_sass_value(SV* sv)
 {
 
     // remember me
-    SV *org = sv;
+    SV* org = sv;
 
     // dereference if possible
     if (SvROK(sv)) sv = SvRV(sv);
@@ -84,8 +86,11 @@ union Sass_Value* sv_to_sass_value(SV *sv)
                 if (!SvOK(sv)) return sass_make_null();
                 // perl reference
                 if (SvROK(sv)) {
+                    // check if it's an error struct
                     if (SvTYPE(SvRV(sv)) == SVt_PVAV) {
-                        return sass_make_error(SvPV_nolen(*av_fetch((AV*)SvRV(sv), 0, false)));
+                        SV** value_svp = av_fetch((AV*)SvRV(sv), 0, false);
+                        SV* value_sv = value_svp ? *value_svp : &PL_sv_undef;
+                        return sass_make_error(SvPV_nolen(value_sv));
                     }
                 // if we have a scalar
                 } else if (!SvROK(sv)) {
@@ -101,8 +106,12 @@ union Sass_Value* sv_to_sass_value(SV *sv)
                   SV* num = *av_fetch(number, 0, false);
                   if (SvIOK(num) || SvNOK(num)) {
                     double val = SvNV(num);
-                    char* unit = len > 0 ? SvPV_nolen(*av_fetch(number, 1, false)) : "";
-                    return sass_make_number(val, unit);
+                    if (len > 0) {
+                      SV** unit_svp = av_fetch(number, 1, false);
+                      SV* unit_sv = unit_svp ? *unit_svp : newSVpv("", 0);
+                      return sass_make_number(val, SvPV_nolen(unit_sv));
+                    }
+                    return sass_make_number(val, "");
                   }
                 }
             }
@@ -120,15 +129,18 @@ union Sass_Value* sv_to_sass_value(SV *sv)
         // EO SvROK
 
     }
+    // perl array reference
     else if (SvTYPE(sv) == SVt_PVAV) {
         AV* av = (AV*) sv;
-        enum Sass_Separator sepa = SASS_COMMA;
+        enum Sass_Separator sep = SASS_COMMA;
         // special check for space separated lists
-        if (sv_derived_from(org, "CSS::Sass::Type::List::Space")) sepa = SASS_SPACE;
-        union Sass_Value* list = sass_make_list(1 + av_len(av), sepa);
+        if (sv_derived_from(org, "CSS::Sass::Type::List::Space")) sep = SASS_SPACE;
+        union Sass_Value* list = sass_make_list(av_len(av) + 1, sep);
         int i;
         for (i = 0; i < sass_list_get_length(list); i++) {
-            sass_list_set_value(list, i, sv_to_sass_value(*av_fetch(av, i, false)));
+            SV** value_svp = av_fetch(av, i, false);
+            SV* value_sv = value_svp ? *value_svp : &PL_sv_undef;
+            sass_list_set_value(list, i, sv_to_sass_value(value_sv));
         }
         return list;
     }
@@ -136,7 +148,7 @@ union Sass_Value* sv_to_sass_value(SV *sv)
     else if (SvTYPE(sv) == SVt_PVHV) {
         HV* hv = (HV*) sv;
         union Sass_Value* map = sass_make_map(HvUSEDKEYS(hv));
-        HE *key;
+        HE* key;
         int i = 0;
         hv_iterinit(hv);
         while (NULL != (key = hv_iternext(hv))) {
@@ -204,7 +216,7 @@ SV* new_sv_sass_error (SV* msg) {
 }
 
 // convert from libsass to perl
-SV *sass_value_to_sv(union Sass_Value* val)
+SV* sass_value_to_sv(union Sass_Value* val)
 {
     SV* sv;
     switch(sass_value_get_tag(val)) {
@@ -280,13 +292,138 @@ SV *sass_value_to_sv(union Sass_Value* val)
     return sv;
 }
 
-// we are called by libsass to dispatch to registered functions
-union Sass_Value* call_sass_function(union Sass_Value* s_args, void *cookie)
+
+struct Sass_Import** sass_importer(const char* url, void* cookie)
 {
 
     dSP;
     // value from perl function
-    SV *perl_value = NULL;
+    SV* perl_value = NULL;
+    // value to return to libsass
+    // union Sass_Value* sass_value = NULL;
+
+    ENTER;
+    SAVETMPS;
+
+    PUSHMARK(SP);
+    XPUSHs(sv_2mortal(newSVpv(url, 0)));
+    PUTBACK;
+
+    // call the static function by soft name reference
+    // force array context since we want to check for errors
+    // in scalar context it would take the last value from list
+    // also enable eval context to catch any major problems
+    int count = call_sv(cookie, G_EVAL | G_ARRAY);
+
+    SPAGAIN;
+    if (!SvTRUE(ERRSV)) {
+        if (count == 0)
+            perl_value = &PL_sv_undef;
+        else if (count == 1)
+            perl_value = POPs;
+    }
+
+    // dereference if possible
+    if (SvROK(perl_value)) {
+        perl_value = SvRV(perl_value);
+    }
+
+    size_t len = 0;
+    struct Sass_Import** incs = 0;
+
+    // do nothing if we got undef retuned
+    if (SvTYPE(perl_value) == SVt_NULL) { }
+    // we may have gotten a single path
+    else if (SvTYPE(perl_value) < SVt_PVAV) {
+
+        // try to load the filename
+        incs = sass_make_import_list(1);
+        char* path = SvPV_nolen(perl_value);
+        incs[0] = sass_make_import_entry(path, 0, 0);
+
+    }
+    // the expected type is an array
+    else if (SvTYPE(perl_value) == SVt_PVAV) {
+
+        size_t i;
+        char* path = 0;
+        char* source = 0;
+        char* mapjson = 0;
+        AV* sass_imports_av = (AV*) perl_value;
+        size_t length = av_len(sass_imports_av);
+        incs = sass_make_import_list(length + 1);
+
+        // process all import statements returned by perl
+        for (i = 0; i <= av_len(sass_imports_av); i++) {
+
+            // get the entry from the array
+            // can either be another array or a path string
+            SV** import_svp = av_fetch(sass_imports_av, i, false);
+
+            // error fetching entry?
+            if (!import_svp) continue;
+
+            SV* import_sv = *import_svp;
+
+            // dereference if possible
+            if (SvROK(import_sv)) {
+                import_sv = SvRV(import_sv);
+            }
+
+            // we may have gotten a single path
+            if (SvTYPE(import_sv) < SVt_PVAV) {
+                path = SvPV_nolen(import_sv);
+            }
+            // the expected type is an array
+            else if (SvTYPE(import_sv) == SVt_PVAV) {
+                AV* import_av = (AV*) import_sv;
+                SV** path_sv = av_fetch(import_av, 0, false);
+                SV** source_sv = av_fetch(import_av, 1, false);
+                SV** mapjson_sv = av_fetch(import_av, 2, false);
+                if (path_sv) path = SvPV_nolen(*path_sv);
+                if (source_sv) source = SvPV_nolen(*source_sv);
+                if (mapjson_sv) mapjson = SvPV_nolen(*mapjson_sv);
+            }
+            // error
+            else {
+                // output a warning to inform the implementer of his mischief
+                // vwarn seems to have a bug (expects char** but needs char***)
+                vwarn("Importer returned invalid data type", 0);
+            }
+
+            // check valid import statement
+            if (!path && !source) continue;
+            // push new import on to the importer list
+            // need to make copy of blobs handled by perl
+            incs[len++] = sass_make_import_entry(path, strdup(source), strdup(mapjson));
+
+        }
+        // EO each SV in AV
+
+    }
+    // error
+    else {
+        // output a warning to inform the implementer of his mischief
+        // vwarn seems to have a bug (expects char** but needs char***)
+        vwarn("Importer returned invalid data type", 0);
+    }
+
+    PUTBACK;
+    FREETMPS;
+    LEAVE;
+
+    return incs;
+
+}
+
+
+// we are called by libsass to dispatch to registered functions
+union Sass_Value* call_sass_function(union Sass_Value* s_args, void* cookie)
+{
+
+    dSP;
+    // value from perl function
+    SV* perl_value = NULL;
     // value to return to libsass
     union Sass_Value* sass_value = NULL;
     int i;
@@ -340,19 +477,20 @@ union Sass_Value* call_sass_function(union Sass_Value* s_args, void *cookie)
 SV* init_sass_options(struct Sass_Options* sass_options, HV* perl_options)
 {
 
-    SV **input_path_sv          = hv_fetchs(perl_options, "input_path",           false);
-    SV **output_path_sv         = hv_fetchs(perl_options, "output_path",          false);
-    SV **output_style_sv        = hv_fetchs(perl_options, "output_style",         false);
-    SV **source_comments_sv     = hv_fetchs(perl_options, "source_comments",      false);
-    SV **omit_source_map_sv     = hv_fetchs(perl_options, "omit_source_map",      false);
-    SV **omit_source_map_url_sv = hv_fetchs(perl_options, "omit_source_map_url",  false);
-    SV **source_map_contents_sv = hv_fetchs(perl_options, "source_map_contents",  false);
-    SV **source_map_embed_sv    = hv_fetchs(perl_options, "source_map_embed",     false);
-    SV **include_paths_sv       = hv_fetchs(perl_options, "include_paths",        false);
-    SV **precision_sv           = hv_fetchs(perl_options, "precision",            false);
-    SV **image_path_sv          = hv_fetchs(perl_options, "image_path",           false);
-    SV **source_map_file_sv     = hv_fetchs(perl_options, "source_map_file",      false);
-    SV **sass_functions_sv      = hv_fetchs(perl_options, "sass_functions",       false);
+    SV** input_path_sv          = hv_fetchs(perl_options, "input_path",           false);
+    SV** output_path_sv         = hv_fetchs(perl_options, "output_path",          false);
+    SV** output_style_sv        = hv_fetchs(perl_options, "output_style",         false);
+    SV** source_comments_sv     = hv_fetchs(perl_options, "source_comments",      false);
+    SV** omit_source_map_sv     = hv_fetchs(perl_options, "omit_source_map",      false);
+    SV** omit_source_map_url_sv = hv_fetchs(perl_options, "omit_source_map_url",  false);
+    SV** source_map_contents_sv = hv_fetchs(perl_options, "source_map_contents",  false);
+    SV** source_map_embed_sv    = hv_fetchs(perl_options, "source_map_embed",     false);
+    SV** include_paths_sv       = hv_fetchs(perl_options, "include_paths",        false);
+    SV** precision_sv           = hv_fetchs(perl_options, "precision",            false);
+    SV** image_path_sv          = hv_fetchs(perl_options, "image_path",           false);
+    SV** source_map_file_sv     = hv_fetchs(perl_options, "source_map_file",      false);
+    SV** sass_functions_sv      = hv_fetchs(perl_options, "sass_functions",       false);
+    SV** importer_sv            = hv_fetchs(perl_options, "importer",             false);
 
     if (input_path_sv)          sass_option_set_input_path          (sass_options, safe_svpv(*input_path_sv, ""));
     if (output_path_sv)         sass_option_set_output_path         (sass_options, safe_svpv(*output_path_sv, ""));
@@ -366,6 +504,8 @@ SV* init_sass_options(struct Sass_Options* sass_options, HV* perl_options)
     if (precision_sv)           sass_option_set_precision           (sass_options, SvUV(*precision_sv));
     if (image_path_sv)          sass_option_set_image_path          (sass_options, safe_svpv(*image_path_sv, ""));
     if (source_map_file_sv)     sass_option_set_source_map_file     (sass_options, safe_svpv(*source_map_file_sv, ""));
+
+    if (importer_sv) { sass_option_set_importer(sass_options, sass_make_importer(sass_importer, *importer_sv)); }
 
     if (sass_functions_sv) {
         int i;
@@ -388,8 +528,10 @@ SV* init_sass_options(struct Sass_Options* sass_options, HV* perl_options)
             }
             entry_av = (AV*)SvRV(*entry_sv);
 
-            SV **sig_sv = av_fetch(entry_av, 0, false);
-            SV **sub_sv = av_fetch(entry_av, 1, false);
+            SV** sig_sv = av_fetch(entry_av, 0, false);
+            SV** sub_sv = av_fetch(entry_av, 1, false);
+            if (!sig_sv) return newSVpv("custom function without prototype", 0);
+            if (!sub_sv) return newSVpv("custom function without callback", 0);
             c_functions[i] = sass_make_function(safe_svpv(*sig_sv, ""), call_sass_function, *sub_sv);
         }
 
@@ -411,7 +553,7 @@ void finalize_sass_context(struct Sass_Context* ctx, HV* RETVAL, SV* err)
     char** included_files = sass_context_get_included_files(ctx);
 
     AV* sv_included_files = newAV();
-    char **it = included_files;
+    char** it = included_files;
     while (it && (*it) != 0) {
       av_push(sv_included_files, newSVpv(*it, 0));
       ++it;
@@ -430,7 +572,7 @@ MODULE = CSS::Sass		PACKAGE = CSS::Sass
 
 BOOT:
 {
-    HV *stash = gv_stashpv("CSS::Sass", 0);
+    HV* stash = gv_stashpv("CSS::Sass", 0);
 
     Constant(SASS_STYLE_NESTED);
     //Constant(stash, SASS_STYLE_EXPANDED); // not implemented in libsass yet
@@ -464,8 +606,8 @@ BOOT:
 
 HV*
 compile_sass(input_string, options)
-             char *input_string
-             HV *options
+             char* input_string
+             HV* options
     CODE:
         RETVAL = newHV();
         sv_2mortal((SV*)RETVAL);
@@ -474,11 +616,15 @@ compile_sass(input_string, options)
         struct Sass_Data_Context* data_ctx = sass_make_data_context(input_string);
         struct Sass_Context* ctx = sass_data_context_get_context(data_ctx);
         struct Sass_Options* ctx_opt = sass_context_get_options(ctx);
-
         SV* err = init_sass_options(ctx_opt, options);
-        if (!SvTRUE(err)) sass_compile_data_context(data_ctx);
+        if (!SvTRUE(err)) {
+          struct Sass_Compiler* compiler = sass_make_data_compiler(data_ctx);
+          sass_compiler_parse(compiler);
+          sass_compiler_execute(compiler);
+          sass_delete_compiler(compiler);
+        }
+        // if (!SvTRUE(err)) sass_compile_data_context(data_ctx);
         finalize_sass_context(ctx, RETVAL, err);
-        // free (sass_option_get_c_functions(ctx_opt));
         sass_delete_data_context(data_ctx);
 
     }
@@ -488,8 +634,8 @@ compile_sass(input_string, options)
 
 HV*
 compile_sass_file(input_path, options)
-             char *input_path
-             HV *options
+             char* input_path
+             HV* options
     CODE:
         RETVAL = newHV();
         sv_2mortal((SV*)RETVAL);
@@ -498,11 +644,14 @@ compile_sass_file(input_path, options)
         struct Sass_File_Context* file_ctx = sass_make_file_context(input_path);
         struct Sass_Context* ctx = sass_file_context_get_context(file_ctx);
         struct Sass_Options* ctx_opt = sass_context_get_options(ctx);
-
         SV* err = init_sass_options(ctx_opt, options);
-        if (!SvTRUE(err)) sass_compile_file_context(file_ctx);
+        if (!SvTRUE(err)) {
+          struct Sass_Compiler* compiler = sass_make_file_compiler(file_ctx);
+          sass_compiler_parse(compiler);
+          sass_compiler_execute(compiler);
+          sass_delete_compiler(compiler);
+        }
         finalize_sass_context(ctx, RETVAL, err);
-        // free (sass_option_get_c_functions(ctx_opt));
         sass_delete_file_context(file_ctx);
 
     }
@@ -526,7 +675,7 @@ sass2scss(sass, options = SASS2SCSS_PRETTIFY_1)
 
 SV*
 quote(str)
-             char *str
+             char* str
     CODE:
     {
 
@@ -542,7 +691,7 @@ quote(str)
 
 SV*
 unquote(str)
-             char *str
+             char* str
     CODE:
     {
 
