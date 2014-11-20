@@ -116,7 +116,7 @@ sub ACTION_versionize {
             }
         }
         unless ($tag) {
-            $tag = `git describe --abbrev=0 --always`;
+            $tag = `git describe --abbrev=0 --always --tag`;
             $tag =~ s/(?:\A\s+|\Av|\s+\z)//g;
             unless ( $tag =~ m/(\d+\.\d+\.)(\d+)(?:\-|\z)/ )
             { die "tag <$tag> invalid (\\d+.\\d+.\\d+)\n"; }
@@ -180,7 +180,7 @@ my %config = (
     c_source => { 'libsass' => [ sort qw(
         ast.cpp sass2scss.cpp node.cpp sass_util.cpp remove_placeholders.cpp json.cpp
         base64vlq.cpp bind.cpp constants.cpp context.cpp contextualize.cpp copy_c_str.cpp
-        error_handling.cpp eval.cpp expand.cpp cencode.c functions.cpp inspect.cpp 
+        error_handling.cpp eval.cpp expand.cpp cencode.c functions.cpp inspect.cpp
         extend.cpp file.cpp output_compressed.cpp output_nested.cpp parser.cpp prelexer.cpp
         sass.cpp sass_interface.cpp sass_functions.cpp sass_values.cpp sass_context.cpp
         source_map.cpp to_c.cpp to_string.cpp units.cpp utf8_string.cpp util.cpp
