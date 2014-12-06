@@ -346,15 +346,16 @@ struct Sass_Import** sass_importer(const char* url, void* cookie)
     else if (SvTYPE(perl_value) == SVt_PVAV) {
 
         size_t i;
-        char* path = 0;
-        char* source = 0;
-        char* mapjson = 0;
         AV* sass_imports_av = (AV*) perl_value;
         size_t length = av_len(sass_imports_av);
         incs = sass_make_import_list(length + 1);
 
         // process all import statements returned by perl
         for (i = 0; i <= av_len(sass_imports_av); i++) {
+
+            char* path = 0;
+            char* source = 0;
+            char* mapjson = 0;
 
             // get the entry from the array
             // can either be another array or a path string

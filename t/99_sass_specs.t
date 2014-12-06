@@ -24,7 +24,8 @@ BEGIN
 			$todo = $todo || $ent eq "todo" ||
 				$ent eq "libsass-todo-tests" ||
 				$ent eq "libsass-todo-issues" ||
-				$ent =~ m/input\.disabled\.scss$/;
+				$ent =~ m/input\.disabled\.scss$/ ||
+				$ent =~ m/^\./;
 			my $path = join("/", $dir, $ent);
 			next if($skip_todo && $todo);
 			push @dirs, $path if -d $path;
