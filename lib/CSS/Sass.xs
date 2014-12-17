@@ -397,7 +397,9 @@ struct Sass_Import** sass_importer(const char* url, const char* prev, void* cook
             if (!path && !source) continue;
             // push new import on to the importer list
             // need to make copy of blobs handled by perl
-            incs[len++] = sass_make_import_entry(path, strdup(source), strdup(mapjson));
+            char* cp_source = source ? strdup(source) : 0;
+            char* cp_mapjson = mapjson ? strdup(mapjson) : 0;
+            incs[len++] = sass_make_import_entry(path, cp_source, mapjson);
 
         }
         // EO each SV in AV
