@@ -420,7 +420,7 @@ struct Sass_Import** sass_importer(const char* url, const char* prev, void* cook
 
 
 // we are called by libsass to dispatch to registered functions
-union Sass_Value* call_sass_function(union Sass_Value* s_args, void* cookie)
+union Sass_Value* call_sass_function(const union Sass_Value* s_args, void* cookie)
 {
 
     dSP;
