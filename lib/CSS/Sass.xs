@@ -293,7 +293,7 @@ SV* sass_value_to_sv(union Sass_Value* val)
 }
 
 
-struct Sass_Import** sass_importer(const char* url, void* cookie)
+struct Sass_Import** sass_importer(const char* url, const char* prev, void* cookie)
 {
 
     dSP;
@@ -307,6 +307,7 @@ struct Sass_Import** sass_importer(const char* url, void* cookie)
 
     PUSHMARK(SP);
     XPUSHs(sv_2mortal(newSVpv(url, 0)));
+    XPUSHs(sv_2mortal(newSVpv(prev, 0)));
     PUTBACK;
 
     // call the static function by soft name reference
