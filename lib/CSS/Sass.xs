@@ -399,7 +399,7 @@ struct Sass_Import** sass_importer(const char* url, const char* prev, void* cook
             // need to make copy of blobs handled by perl
             char* cp_source = source ? strdup(source) : 0;
             char* cp_mapjson = mapjson ? strdup(mapjson) : 0;
-            incs[len++] = sass_make_import_entry(path, cp_source, mapjson);
+            incs[len++] = sass_make_import_entry(path, cp_source, cp_mapjson);
 
         }
         // EO each SV in AV
@@ -720,6 +720,28 @@ import_sv(sv)
         RETVAL = sass_value_to_sv(value);
 
         sass_delete_value(value);
+
+    }
+    OUTPUT:
+             RETVAL
+
+SV*
+libsass_version()
+    CODE:
+    {
+
+        RETVAL = newSVpv(libsass_version(), 0);
+
+    }
+    OUTPUT:
+             RETVAL
+
+SV*
+sass2scss_version()
+    CODE:
+    {
+
+        RETVAL = newSVpv(sass2scss_version(), 0);
 
     }
     OUTPUT:

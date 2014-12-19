@@ -22,6 +22,8 @@ our @EXPORT_OK = qw(
 	import_sv
 	sass_compile
 	sass_compile_file
+	libsass_version
+	sass2scss_version
 	SASS_COMMA
 	SASS_SPACE
 	SASS_ERROR
@@ -451,7 +453,7 @@ L<The CSS::Sass Home Page|https://github.com/sass/perl-libsass>
 
 =head1 AUTHOR
 
-David Caldwell E<lt>david@porkrind.orgE<gt>  
+David Caldwell E<lt>david@porkrind.orgE<gt>
 Marcel Greter E<lt>perl-libsass@ocbnet.chE<gt>
 
 =head1 LICENSE
